@@ -1,0 +1,19 @@
+# Data splitting configuration
+split_data:
+  # Input/Output paths
+  input_path: "./PPG_data/processed_df/processed_ppg_ecg_label_filename_sqi0.pkl"
+  output_dir: "./PPG_data/splitted_data/sqi_0_4"
+  
+  # Target labels to select (after merging PAC/PVC into ECT)
+  target_labels: ['NORM', 'ECT']
+  
+  # Label encoding mapping
+  label_mapping:
+    NORM: 0
+    ECT: 1
+  
+  # Split proportions (must sum to 1.0)
+  train_prop: 0.6
+  val_prop: 0.2
+  test_prop: 0.2
+

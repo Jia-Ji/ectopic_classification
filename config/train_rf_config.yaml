@@ -1,0 +1,30 @@
+data:
+  base_path: "./PPG_data/splitted_data/"
+  path:
+    train:
+      hr_path: "${data.base_path}{dataset}/hr_train.npy"
+      hrv_path: "${data.base_path}{dataset}/rmssd_train.npy"
+      y_path: "${data.base_path}{dataset}/labels_train.npy"
+    valid:
+      hr_path: "${data.base_path}{dataset}/hr_val.npy"
+      hrv_path: "${data.base_path}{dataset}/rmssd_val.npy"
+      y_path: "${data.base_path}{dataset}/labels_val.npy"
+    test:
+      hr_path: "${data.base_path}{dataset}/hr_test.npy"
+      hrv_path: "${data.base_path}{dataset}/rmssd_test.npy"
+      y_path: "${data.base_path}{dataset}/labels_test.npy"
+
+model:
+  n_feats_to_select: 2
+  n_estimators: 100  # Number of trees in the forest
+  max_depth: null  # Maximum depth of the tree (null for no limit)
+  min_samples_split: 2  # Minimum number of samples required to split a node
+  min_samples_leaf: 1  # Minimum number of samples required at a leaf node
+  class_weight: balanced  # Options: 'balanced', 'balanced_subsample', or null
+  random_state: 42
+  get_summary: True
+  confusion_matrix: True
+  classification_report: True
+  aus_score: True
+  plot_roc: True
+

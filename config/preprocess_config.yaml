@@ -1,0 +1,15 @@
+# Preprocessing configuration
+preprocess:
+  # Input/Output paths
+  input_path: "./PPG_data/combined_df/ppg_ecg_label_filename_sqi50.pkl"
+  output_path: "./PPG_data/processed_df/processed_ppg_ecg_label_filename_sqi50.pkl"
+  
+  # Signal processing parameters
+  fs: 240  # Sampling frequency in Hz
+  bandpass_low: 0.3  # Lower cutoff frequency in Hz
+  bandpass_high: 8.0  # Upper cutoff frequency in Hz
+  bandpass_order: 4  # Filter order for Butterworth bandpass filter
+  
+  # Outlier clipping parameters
+  iqr_k: 3.0  # IQR multiplier for outlier clipping
+

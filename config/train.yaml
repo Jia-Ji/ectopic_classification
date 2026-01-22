@@ -1,0 +1,179 @@
+data:
+  base_path: "./PPG_data/splitted_data/"
+  path:
+    train:
+      x_path: "${data.base_path}{dataset}/ppg_train_normalized.npy"
+      y_path: "${data.base_path}{dataset}/labels_train.npy"
+      fp_mask_path: "${data.base_path}{dataset}/fp_masks_train.npy"
+      id0_path: "${data.base_path}{dataset}/id0_train.npy"
+      # sqi_path: "${data.base_path}{dataset}/sqi_train.npy"
+      sqi_sample_path: "${data.base_path}{dataset}/sqi_sample_train.npy"
+    valid:
+      x_path: "${data.base_path}{dataset}/ppg_val_normalized.npy"
+      y_path: "${data.base_path}{dataset}/labels_val.npy"
+      fp_mask_path: "${data.base_path}{dataset}/fp_masks_val.npy"
+      id0_path: "${data.base_path}{dataset}/id0_val.npy"
+      # sqi_path: "${data.base_path}{dataset}/sqi_val.npy"
+      sqi_sample_path: "${data.base_path}{dataset}/sqi_sample_val.npy"
+    test:
+      x_path: "${data.base_path}{dataset}/ppg_test_normalized.npy"
+      y_path: "${data.base_path}{dataset}/labels_test.npy"
+      ecg_path: "${data.base_path}{dataset}/ecg_test.npy"
+      include_ecg: true
+      filenames_path: "${data.base_path}{dataset}/filenames_test.npy"
+      fp_mask_path: "${data.base_path}{dataset}/fp_masks_test.npy"
+      sqi_path: "${data.base_path}{dataset}/sqi_test.npy"
+      sqi_sample_path: "${data.base_path}{dataset}/sqi_sample_test.npy"
+  loader:
+      batch_size: 32
+      num_workers: 4
+      pin_memory: True
+      drop_last: True
+      persistent_workers: False
+
+  augmentations:
+    enable: true
+    target_ratio: 1.0  # Target ratio of ectopic to normal (1.0 = equal classes)
+    mask_dropout_p: 0.3  # Probability of dropping all mask channels during training
+    amplitude_scaling:
+      enable: true
+      params: { scale_min: 0.8, scale_max: 1.2, p: 0.5 }
+    baseline_wander:
+      enable: false
+      params: { freq_hz: [0.02, 0.2], amp: [0.01, 0.05], p: 0.5, fs: 240 }
+    additive_gaussian_noise:
+      enable: false
+      params: { std_frac: [0.005, 0.02], p: 0.5 }
+    random_dropouts:
+      enable: false
+      params: { max_frac: 0.05, p: 0.3 }
+    motion_artifacts:
+      enable: false
+      params: { max_segments: 3, seg_len_frac: [0.01, 0.05], amp_frac: [0.5, 2.0], p: 0.3 }
+    time_scaling:
+      enable: true
+      params: { scale_min: 0.95, scale_max: 1.05, p: 0.3 }
+
+model:
+  task: multiclass
+  num_classes: 3
+  lr: 0.0005
+  weight_decay: 0.00003
+  loss_name: cross_entropy  # Supports: bce, cross_entropy, ce (all use CrossEntropyLoss for 3-class)
+  use_lr_scheduler: False
+  lr_warmup_ratio: 0.01
+  device: cuda
+  class_weights: [1.0, 1.0, 1.0]  # Set to [1.0, 1.0, 1.0] for equal weights, or adjust for imbalanced classes [weight_class_0_Normal, weight_class_1_Ectopic, weight_class_2_VT]
+  ectopic_threshold: null # Threshold for ectopic class (class 1). If P(ectopic) >= threshold, predict ectopic; otherwise choose between class 0 and 2. Set to None to use standard argmax.
+  config:
+    hyperparameters:
+      feat_extracter:
+        signal_channels: 5  # 1 PPG channel + 4 FP mask channels (on, sp, dn, dp)
+        stride: 1
+        layer_norm: True
+        feat_dim: 1024
+        dropout_p: 0.3
+        use_attention: True
+        attention_heads: 16
+        attention_type: "sqi"
+      classifier:
+        hidden_dims: [1024, 128]
+        dropout_p: 0.3
+        activation: "relu"  
+        num_classes: 3
+    metrics:
+      accuracy: True
+      cf_matrix: True
+      f1: True
+      specificity: True
+      AUC: True
+      sensitivity: True
+      ppv: True
+    misclassified_samples:
+      enable: false
+      max_samples: 0
+      
+
+
+trainer:
+  parameters:
+    accelerator: "gpu"
+    strategy: "auto"
+    devices: "auto"
+    num_nodes: 1
+    precision: "32"
+    fast_dev_run: False
+    max_epochs: 200
+    min_epochs: 1
+    max_steps: -1
+    min_steps: Null
+    max_time: Null
+    limit_train_batches: Null
+    limit_val_batches: Null
+    limit_test_batches: Null
+    limit_predict_batches: null
+    overfit_batches: 0.0
+    val_check_interval: null
+    check_val_every_n_epoch: 1
+    num_sanity_val_steps: 0
+    log_every_n_steps: 1
+    enable_checkpointing: True
+    enable_progress_bar: True
+    enable_model_summary: null
+    accumulate_grad_batches: 1
+    gradient_clip_val: null
+    gradient_clip_algorithm: null
+    deterministic: True
+    benchmark: False
+    inference_mode: True
+    profiler: null
+    detect_anomaly: False
+    plugins: null
+    sync_batchnorm: False
+    reload_dataloaders_every_n_epochs: 0
+    default_root_dir: null
+  callbacks:
+    model_checkpoint:
+      dirpath: "checkpoints"
+      filename: "resnet18-{epoch:02d}-{valid_loss:2f}-{valid_accuracy:2f}"
+      monitor: "valid_loss_macro"
+      verbose: True
+      save_last: True
+      save_top_k: 1
+      save_weights_only: False
+      mode: "min"
+      auto_insert_metric_name: True
+      every_n_train_steps: Null
+      train_time_interval: Null
+      every_n_epochs: Null
+      save_on_train_epoch_end: False
+    logger:
+      save_dir: logs/
+      name: ""
+      version: Null
+      log_graph: False
+      default_hp_metric: True
+      prefix: ""
+      sub_dir: Null
+    early_stop:
+      monitor: "valid_loss_macro"
+      min_delta: 0.001
+      patience: 30
+      verbose: True
+      mode: "min"
+      strict: True
+      check_finite: True
+      stopping_threshold: null
+      divergence_threshold: null
+      check_on_train_epoch_end: False
+    progress_bar:
+      refresh_rate: 20
+      process_position: 0
+
+
+experiment:
+  train: True
+  test: True
+  resume_ckpt: False
+  ckpt_path: null
+  saved_model_path: null

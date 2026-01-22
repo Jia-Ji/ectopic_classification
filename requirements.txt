@@ -1,0 +1,16 @@
+numpy
+scipy
+pandas
+matplotlib
+torch
+torchvision
+torchaudio
+pytorch-lightning
+transformers
+hydra-core
+scikit-learn
+tensorboardx
+tensorboard
+scikit-multilearn
+pyPPG
+dotmap == 1.3.30

@@ -1,0 +1,26 @@
+extractor:
+  mat_file_path: "./PPG_data/mat_data/PPGECG_all_renamed_mo_v1c_Seg_10457_Sig_052_1244_labelled.mat"
+  csv_file_path: "./PPG_data/mat_data/PPGECG_all_renamed_mo_v1c_Seg_10457_Sig_052_1244_labelled.csv"
+  segment_save_path: "./PPG_data/segments/"
+  output_dir: "./PPG_data/"
+  output_filename: "PPGECG_all_renamed_mo_v1c_Seg_10457_Sig_052_1244_labelled.pkl"
+  fs: 240
+  start_sig: 0
+  end_sig: -1
+  use_tk: False
+  pad_width: 960
+  tile_reps: 2
+  
+# SQI thresholds for filtering and prevalence calculation
+filtering:
+  sqi_thresholds: [10, 30, 40, 50, 60, 70, 90]  # List of SQI thresholds to filter by
+  output_subdir: "combined_df"  # Subdirectory within output_dir to save filtered dataframes
+
+# Noisy examples plotting configuration
+noisy_examples:
+  enable: true  # Enable plotting of noisy examples
+  threshold: 50  # SQI threshold - segments below this will be plotted as noisy examples
+  output_subdir: "noisy_examples"  # Subdirectory within output_dir to save noisy example plots
+  max_examples: 20  # Maximum number of noisy examples to plot
+  threshold_subdir: true  # Create subdirectory named by threshold (e.g., "noisy_examples_sqi50")
+ 

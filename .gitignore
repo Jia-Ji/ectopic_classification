@@ -1,0 +1,14 @@
+.DS_Store
+outputs/
+__pycache__
+PPG_data/
+PPG_data/mat_data
+PPG_data/Compiled_bak
+PPG_data/combined_df
+PPG_data/processed_df
+PPG_data/splitted_data
+PPG_data/Scripts
+PPG_data/.DS_Store
+logs/
+checkpoints/
+#main_log.txt

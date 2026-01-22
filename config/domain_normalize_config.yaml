@@ -1,0 +1,13 @@
+# Domain-based normalization configuration
+domain_normalize:
+  # Input/Output paths
+  # Input directory containing splitted data (should contain id0_train.npy, ppg_train.npy, etc.)
+  data_dir: "./PPG_data/splitted_data/sqi_0_4"
+  
+  # Path to save domain statistics JSON file
+  stats_output_path: "./PPG_data/splitted_data/sqi_0_4/domain_stats.json"
+
+  # Domain identification prefixes
+  cathlab_prefix: "ID"
+  theatre_prefix: "Theatre"
+
