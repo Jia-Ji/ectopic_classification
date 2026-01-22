@@ -55,32 +55,32 @@ data:
       params: { scale_min: 0.95, scale_max: 1.05, p: 0.3 }
 
 model:
-  task: multiclass
-  num_classes: 3
+  task: binary
+  num_classes: 2
   lr: 0.0005
-  weight_decay: 0.00003
-  loss_name: cross_entropy  # Supports: bce, cross_entropy, ce (all use CrossEntropyLoss for 3-class)
+  weight_decay: 0.0001
+  loss_name: cross_entropy  # Supports: bce, cross_entropy, ce (all use CrossEntropyLoss for binary classification)
   use_lr_scheduler: False
   lr_warmup_ratio: 0.01
   device: cuda
-  class_weights: [1.0, 1.0, 1.0]  # Set to [1.0, 1.0, 1.0] for equal weights, or adjust for imbalanced classes [weight_class_0_Normal, weight_class_1_Ectopic, weight_class_2_VT]
-  ectopic_threshold: null # Threshold for ectopic class (class 1). If P(ectopic) >= threshold, predict ectopic; otherwise choose between class 0 and 2. Set to None to use standard argmax.
+  class_weights: [1.0, 1.0]  # Set to [1.0, 1.0] for equal weights, or adjust for imbalanced classes [weight_class_0_Normal, weight_class_1_Ectopic]
+  ectopic_threshold: null # Threshold for ectopic class (class 1). If P(ectopic) >= threshold, predict ectopic; otherwise predict normal (class 0). Set to None to use standard argmax.
   config:
     hyperparameters:
       feat_extracter:
         signal_channels: 5  # 1 PPG channel + 4 FP mask channels (on, sp, dn, dp)
         stride: 1
         layer_norm: True
-        feat_dim: 1024
+        feat_dim: 512
         dropout_p: 0.3
         use_attention: True
         attention_heads: 16
         attention_type: "sqi"
       classifier:
-        hidden_dims: [1024, 128]
+        hidden_dims: [512, 64]
         dropout_p: 0.3
         activation: "relu"  
-        num_classes: 3
+        num_classes: 2
     metrics:
       accuracy: True
       cf_matrix: True

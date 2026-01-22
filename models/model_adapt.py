@@ -180,13 +180,18 @@ class EctopicsClassifier(pl.LightningModule):
                     )
                 elif metric == "AUC":
                     # Macro-averaged AUC
-                    self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    )
-                    # Per-class AUC
-                    self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.AUROC(
-                        self.task, num_classes=self.num_classes, average="none"
-                    )
+                    if self.task == "binary":
+                        self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(task="binary")
+                        # For binary, per-class AUC is the same as overall AUC
+                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.AUROC(task="binary")
+                    else:
+                        self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(
+                            task="multiclass", num_classes=self.num_classes, average="macro"
+                        )
+                        # Per-class AUC
+                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.AUROC(
+                            task="multiclass", num_classes=self.num_classes, average="none"
+                        )
                 elif metric == "sensitivity":
                     if self.task == "binary":
                         self.metrics["metrics_" + phase][metric] = torchmetrics.Recall(task="binary")
@@ -282,12 +287,16 @@ class EctopicsClassifier(pl.LightningModule):
         """
         Predict with tunable decision rule for class 'ectopic' (class 1).
         
-        Rule:
+        For binary classification (num_classes=2):
+          if P(ectopic) >= threshold -> predict 1 (ectopic)
+          else -> predict 0 (normal)
+        
+        For multiclass classification (num_classes=3):
           if P(ectopic) >= threshold -> predict 1 (ectopic)
           else -> argmax between class 0 and 2
         
         Args:
-            logits: [B, 3] tensor of logits
+            logits: [B, num_classes] tensor of logits
             
         Returns:
             preds: [B] tensor of predictions
@@ -299,16 +308,22 @@ class EctopicsClassifier(pl.LightningModule):
         probs = F.softmax(logits, dim=1)
         p_ectopic = probs[:, 1]  # Probability of class 1 (ectopic)
         
-        preds = torch.empty(logits.size(0), dtype=torch.long, device=logits.device)
-        
-        # Default: choose between class 0 and 2
-        logits_02 = logits[:, [0, 2]]
-        preds_02 = torch.argmax(logits_02, dim=1)
-        preds[preds_02 == 0] = 0  # If argmax is 0 in [0,2], predict class 0
-        preds[preds_02 == 1] = 2  # If argmax is 1 in [0,2], predict class 2
-        
-        # Override to class 1 (ectopic) when confident enough
-        preds[p_ectopic >= self.ectopic_threshold] = 1
+        if self.num_classes == 2:
+            # Binary classification: simple threshold rule
+            preds = torch.zeros(logits.size(0), dtype=torch.long, device=logits.device)
+            preds[p_ectopic >= self.ectopic_threshold] = 1  # Predict ectopic if above threshold
+        else:
+            # Multiclass classification (3+ classes): choose between class 0 and 2 if below threshold
+            preds = torch.empty(logits.size(0), dtype=torch.long, device=logits.device)
+            
+            # Default: choose between class 0 and 2
+            logits_02 = logits[:, [0, 2]]
+            preds_02 = torch.argmax(logits_02, dim=1)
+            preds[preds_02 == 0] = 0  # If argmax is 0 in [0,2], predict class 0
+            preds[preds_02 == 1] = 2  # If argmax is 1 in [0,2], predict class 2
+            
+            # Override to class 1 (ectopic) when confident enough
+            preds[p_ectopic >= self.ectopic_threshold] = 1
         
         return preds
 
@@ -374,7 +389,11 @@ class EctopicsClassifier(pl.LightningModule):
                 axes = axes.reshape(1, -1)
             axes = axes.flatten()
         
-        label_names = ['Normal', 'Ectopic', 'VT']
+        # Set label names based on number of classes
+        if self.num_classes == 2:
+            label_names = ['Normal', 'Ectopic']
+        else:
+            label_names = ['Normal', 'Ectopic', 'VT']
         
         def _to_1d(signal_array):
             """Convert signal array to 1D for visualization.
@@ -521,7 +540,11 @@ class EctopicsClassifier(pl.LightningModule):
                 sample = samples[i-1]
                 true_label = sample.get('true_label', 'N/A')
                 prediction = sample.get('prediction', 'N/A')
-                label_names = ['Normal', 'Ectopic', 'VT']
+                # Set label names based on number of classes
+                if self.num_classes == 2:
+                    label_names = ['Normal', 'Ectopic']
+                else:
+                    label_names = ['Normal', 'Ectopic', 'VT']
                 true_label_name = label_names[true_label] if isinstance(true_label, int) and 0 <= true_label < len(label_names) else str(true_label)
                 pred_label_name = label_names[prediction] if isinstance(prediction, int) and 0 <= prediction < len(label_names) else str(prediction)
                 f.write(f"{i}. {filename} (True: {true_label_name}, Pred: {pred_label_name})\n")
@@ -536,8 +559,11 @@ class EctopicsClassifier(pl.LightningModule):
         else:
             cm = np.asarray(matrix)
         
-        # Class labels
-        label_names = ['Normal', 'Ectopic', 'VT']
+        # Class labels - set based on number of classes
+        if self.num_classes == 2:
+            label_names = ['Normal', 'Ectopic']
+        else:
+            label_names = ['Normal', 'Ectopic', 'VT']
         
         # Print confusion matrix to console
         print("\n" + "=" * 80, flush=True)
@@ -1005,7 +1031,7 @@ class EctopicsClassifier(pl.LightningModule):
 
         if self.loss_name in ["bce", "cross_entropy", "ce"]:
             # Get per-sample task loss
-            # Pass class_weights if available for 3-class imbalanced classification
+            # Pass class_weights if available for imbalanced classification
             per_sample_loss = self.loss_fn(
                 targets, output_logits, self.device_type, reduction="none", 
                 class_weights=self.class_weights
@@ -1104,8 +1130,8 @@ class EctopicsClassifier(pl.LightningModule):
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "train"]["accuracy"].compute()
-            # For multiclass, accuracy with average="none" returns per-class accuracy
-            if self.task == "multiclass" and acc.numel() > 1:
+            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
+            if acc.numel() > 1:
                 acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:
@@ -1338,7 +1364,7 @@ class EctopicsClassifier(pl.LightningModule):
         # Use the same loss function as training (with class weights support)
         if self.loss_name in ["bce", "cross_entropy", "ce"]:
             # Get per-sample loss using the configured loss function
-            # Pass class_weights if available for 3-class imbalanced classification
+            # Pass class_weights if available for imbalanced classification
             per_sample_loss = self.loss_fn(
                 targets, output_logits, self.device_type, reduction="none", 
                 class_weights=self.class_weights
@@ -1398,7 +1424,8 @@ class EctopicsClassifier(pl.LightningModule):
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "valid"]["accuracy"].compute()
-            if self.task == "multiclass" and acc.numel() > 1:
+            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
+            if acc.numel() > 1:
                 acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:
@@ -1738,7 +1765,8 @@ class EctopicsClassifier(pl.LightningModule):
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "test"]["accuracy"].compute()
-            if self.task == "multiclass" and acc.numel() > 1:
+            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
+            if acc.numel() > 1:
                 acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:

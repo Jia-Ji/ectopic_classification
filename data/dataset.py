@@ -436,7 +436,7 @@ class TestDataset(Dataset):
         return len(self.y)
 
 class BalancedTrainDataset(Dataset):
-    """Dataset that balances classes by augmenting minority classes (Ectopic and VT)"""
+    """Dataset that balances classes by augmenting minority class (Ectopic) for binary classification"""
     def __init__(
         self,
         x_path: str,
@@ -521,30 +521,25 @@ class BalancedTrainDataset(Dataset):
         self._mask_dropout_count = 0
         self._total_samples = 0
         
-        # Calculate class distribution for 3 classes: Normal=0, Ectopic=1, VT=2
+        # Calculate class distribution for binary classification: Normal=0, Ectopic=1
         self.normal_indices = np.where(self.y == 0)[0]
         self.ectopic_indices = np.where(self.y == 1)[0]
-        self.vt_indices = np.where(self.y == 2)[0]
         
         self.n_normal = len(self.normal_indices)
         self.n_ectopic = len(self.ectopic_indices)
-        self.n_vt = len(self.vt_indices)
         
         # Find the majority class size
-        self.n_majority = max(self.n_normal, self.n_ectopic, self.n_vt)
+        self.n_majority = max(self.n_normal, self.n_ectopic)
         
-        # Calculate how many augmented samples we need for each minority class
+        # Calculate how many augmented samples we need for the minority class (Ectopic)
         target_ectopic = int(self.n_majority * target_ratio)
-        target_vt = int(self.n_majority * target_ratio)
         
         self.n_augmentations_ectopic = max(0, target_ectopic - self.n_ectopic)
-        self.n_augmentations_vt = max(0, target_vt - self.n_vt)
-        self.n_augmentations_needed = self.n_augmentations_ectopic + self.n_augmentations_vt
+        self.n_augmentations_needed = self.n_augmentations_ectopic
         
-        print(f"Original distribution: {self.n_normal} Normal, {self.n_ectopic} Ectopic, {self.n_vt} VT")
+        print(f"Original distribution: {self.n_normal} Normal, {self.n_ectopic} Ectopic")
         print(f"Target ratio: {target_ratio} (relative to majority class: {self.n_majority})")
         print(f"Will generate {self.n_augmentations_ectopic} augmented Ectopic samples")
-        print(f"Will generate {self.n_augmentations_vt} augmented VT samples")
         print(f"Total augmented samples: {self.n_augmentations_needed}")
     
     def __getitem__(self, index):
@@ -614,19 +609,12 @@ class BalancedTrainDataset(Dataset):
                 return x_get, y_get, id0_get
             return x_get, y_get
         else:
-            # Augmented sample from minority classes
+            # Augmented sample from minority class (Ectopic)
             aug_index = index - len(self.x)
             
-            # Determine which class to augment and get the original index
-            if aug_index < self.n_augmentations_ectopic:
-                # Augmented Ectopic sample
-                original_index = self.ectopic_indices[aug_index % len(self.ectopic_indices)]
-                y_get = 1  # Ectopic class
-            else:
-                # Augmented VT sample
-                vt_aug_index = aug_index - self.n_augmentations_ectopic
-                original_index = self.vt_indices[vt_aug_index % len(self.vt_indices)]
-                y_get = 2  # VT class
+            # Augmented Ectopic sample
+            original_index = self.ectopic_indices[aug_index % len(self.ectopic_indices)]
+            y_get = 1  # Ectopic class
             
             x_get = self.x[original_index].astype(np.float32)
             

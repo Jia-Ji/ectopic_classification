@@ -17,6 +17,7 @@ def cross_entropy_loss(y_true, y_pred, device, reduction: str = "mean", class_we
         device: Device to place tensors on
         reduction: Reduction mode ("none", "mean", or "sum")
         class_weights: Optional list of class weights for imbalanced datasets.
+                      For binary classification: [weight_class_0, weight_class_1]
                       For 3 classes: [weight_class_0, weight_class_1, weight_class_2]
                       If None, all classes have equal weight.
     
@@ -60,6 +61,7 @@ def binary_cross_entropy_with_logits(y_true, y_pred, device, reduction: str = "m
         device: Device to place tensors on
         reduction: Reduction mode ("none", "mean", or "sum")
         class_weights: Optional list of class weights for imbalanced datasets.
+                      For binary classification: [weight_class_0, weight_class_1]
                       For 3 classes: [weight_class_0, weight_class_1, weight_class_2]
                       If None, all classes have equal weight.
     """
