@@ -689,7 +689,15 @@ class EctopicsClassifier(pl.LightningModule):
             if k in self.metrics["metrics_" + phase]:
                 # AUC needs logits/probabilities, not class predictions
                 if k == "AUC" and logits is not None:
-                    self.metrics["metrics_" + phase][k].update(logits, targets)
+                    # For binary classification, AUROC expects probabilities for positive class only
+                    if self.task == "binary":
+                        # Convert logits to probabilities and take positive class (class 1)
+                        probs = F.softmax(logits, dim=1)
+                        pos_probs = probs[:, 1]  # Probability of positive class (ectopic)
+                        self.metrics["metrics_" + phase][k].update(pos_probs, targets)
+                    else:
+                        # For multiclass, pass full logits/probabilities
+                        self.metrics["metrics_" + phase][k].update(logits, targets)
                 else:
                     # Other metrics use class predictions
                     self.metrics["metrics_" + phase][k].update(outputs, targets)
@@ -697,7 +705,14 @@ class EctopicsClassifier(pl.LightningModule):
             if f"{k}_per_class" in self.metrics["metrics_" + phase]:
                 # Per-class AUC also needs logits
                 if k == "AUC" and logits is not None:
-                    self.metrics["metrics_" + phase][f"{k}_per_class"].update(logits, targets)
+                    # For binary classification, AUROC expects probabilities for positive class only
+                    if self.task == "binary":
+                        probs = F.softmax(logits, dim=1)
+                        pos_probs = probs[:, 1]  # Probability of positive class (ectopic)
+                        self.metrics["metrics_" + phase][f"{k}_per_class"].update(pos_probs, targets)
+                    else:
+                        # For multiclass, pass full logits/probabilities
+                        self.metrics["metrics_" + phase][f"{k}_per_class"].update(logits, targets)
                 else:
                     # Other per-class metrics use class predictions
                     self.metrics["metrics_" + phase][f"{k}_per_class"].update(outputs, targets)
@@ -809,14 +824,18 @@ class EctopicsClassifier(pl.LightningModule):
                         bin_metrics["specificity"] = metric_obj.compute().item()
                     
                     elif metric_name == "AUC":
-                        # For AUC, we need logits (probabilities)
+                        # For AUC, we need probabilities
                         bin_logits_subset = all_logits[mask]
                         if self.task == "binary":
-                            bin_logits_subset = bin_logits_subset[:, 1]  # Take logit for positive class
+                            # Convert logits to probabilities and take positive class
+                            probs = F.softmax(bin_logits_subset, dim=1)
+                            bin_probs_subset = probs[:, 1]  # Probability of positive class
+                        else:
+                            bin_probs_subset = bin_logits_subset  # For multiclass, use full logits
                         metric_obj = torchmetrics.AUROC(
                             self.task, num_classes=self.num_classes if self.task != "binary" else None
-                        ).to(bin_logits_subset.device)
-                        metric_obj.update(bin_logits_subset, bin_targets)
+                        ).to(bin_probs_subset.device)
+                        metric_obj.update(bin_probs_subset, bin_targets)
                         bin_metrics["AUC"] = metric_obj.compute().item()
                     
                     elif metric_name == "sensitivity":
