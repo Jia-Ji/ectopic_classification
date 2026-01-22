@@ -154,68 +154,26 @@ class EctopicsClassifier(pl.LightningModule):
             for metric in self.config.metrics:
                 if metric == "accuracy":
                     self.metrics["metrics_" + phase][metric] = torchmetrics.Accuracy(
-                        self.task, num_classes=self.num_classes, average="none"
+                        task="binary"
                     )
                 elif metric == "cf_matrix":
                     self.metrics["metrics_" + phase][metric] = torchmetrics.ConfusionMatrix(
-                        self.task, num_classes=self.num_classes
+                        task="binary", num_classes=self.num_classes
                     )
                 elif metric == "f1":
-                    # Add both macro-averaged and per-class F1
                     self.metrics["metrics_" + phase][metric] = torchmetrics.F1Score(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    )
-                    # Per-class F1
-                    self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.F1Score(
-                        self.task, num_classes=self.num_classes, average="none"
+                        task="binary"
                     )
                 elif metric == "specificity":
-                    # Macro-averaged specificity
                     self.metrics["metrics_" + phase][metric] = torchmetrics.Specificity(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    )
-                    # Per-class specificity
-                    self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.Specificity(
-                        self.task, num_classes=self.num_classes, average="none"
+                        task="binary"
                     )
                 elif metric == "AUC":
-                    # Macro-averaged AUC
-                    if self.task == "binary":
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(task="binary")
-                        # For binary, per-class AUC is the same as overall AUC
-                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.AUROC(task="binary")
-                    else:
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        )
-                        # Per-class AUC
-                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.AUROC(
-                            task="multiclass", num_classes=self.num_classes, average="none"
-                        )
+                    self.metrics["metrics_" + phase][metric] = torchmetrics.AUROC(task="binary")
                 elif metric == "sensitivity":
-                    if self.task == "binary":
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.Recall(task="binary")
-                    else:
-                        # Macro-averaged recall
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.Recall(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        )
-                        # Per-class recall
-                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.Recall(
-                            task="multiclass", num_classes=self.num_classes, average="none"
-                        )
+                    self.metrics["metrics_" + phase][metric] = torchmetrics.Recall(task="binary")
                 elif metric == "ppv":
-                    if self.task == "binary":
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.Precision(task="binary")
-                    else:
-                        # Macro-averaged precision
-                        self.metrics["metrics_" + phase][metric] = torchmetrics.Precision(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        )
-                        # Per-class precision
-                        self.metrics["metrics_" + phase][f"{metric}_per_class"] = torchmetrics.Precision(
-                            task="multiclass", num_classes=self.num_classes, average="none"
-                        )
+                    self.metrics["metrics_" + phase][metric] = torchmetrics.Precision(task="binary")
 
         
         self.step_losses = {"train": [], "valid": [], "test": []}
@@ -687,43 +645,20 @@ class EctopicsClassifier(pl.LightningModule):
         """
         for k in self.config.metrics:
             if k in self.metrics["metrics_" + phase]:
-                # AUC needs logits/probabilities, not class predictions
+                # AUC needs probabilities for positive class (binary classification)
                 if k == "AUC" and logits is not None:
-                    # For binary classification, AUROC expects probabilities for positive class only
-                    if self.task == "binary":
-                        # Convert logits to probabilities and take positive class (class 1)
-                        probs = F.softmax(logits, dim=1)
-                        pos_probs = probs[:, 1]  # Probability of positive class (ectopic)
-                        self.metrics["metrics_" + phase][k].update(pos_probs, targets)
-                    else:
-                        # For multiclass, pass full logits/probabilities
-                        self.metrics["metrics_" + phase][k].update(logits, targets)
+                    # Convert logits to probabilities and take positive class (class 1)
+                    probs = F.softmax(logits, dim=1)
+                    pos_probs = probs[:, 1]  # Probability of positive class (ectopic)
+                    self.metrics["metrics_" + phase][k].update(pos_probs, targets)
                 else:
                     # Other metrics use class predictions
                     self.metrics["metrics_" + phase][k].update(outputs, targets)
-            # Also update per-class metrics if they exist
-            if f"{k}_per_class" in self.metrics["metrics_" + phase]:
-                # Per-class AUC also needs logits
-                if k == "AUC" and logits is not None:
-                    # For binary classification, AUROC expects probabilities for positive class only
-                    if self.task == "binary":
-                        probs = F.softmax(logits, dim=1)
-                        pos_probs = probs[:, 1]  # Probability of positive class (ectopic)
-                        self.metrics["metrics_" + phase][f"{k}_per_class"].update(pos_probs, targets)
-                    else:
-                        # For multiclass, pass full logits/probabilities
-                        self.metrics["metrics_" + phase][f"{k}_per_class"].update(logits, targets)
-                else:
-                    # Other per-class metrics use class predictions
-                    self.metrics["metrics_" + phase][f"{k}_per_class"].update(outputs, targets)
 
     def reset_metrics(self, phase: str = "train"):
         for k in self.config.metrics:
             if k in self.metrics["metrics_" + phase]:
                 self.metrics["metrics_" + phase][k].reset()
-            # Also reset per-class metrics if they exist
-            if f"{k}_per_class" in self.metrics["metrics_" + phase]:
-                self.metrics["metrics_" + phase][f"{k}_per_class"].reset()
     
     def _compute_sqi_stratified_metrics(self):
         """Compute metrics stratified by SQI bins: Low (<0.3), Medium (0.3-0.7), High (>0.7)"""
@@ -802,65 +737,42 @@ class EctopicsClassifier(pl.LightningModule):
                     
                 try:
                     if metric_name == "accuracy":
-                        metric_obj = torchmetrics.Accuracy(
-                            self.task, num_classes=self.num_classes, average="none"
-                        ).to(bin_preds.device)
+                        metric_obj = torchmetrics.Accuracy(task="binary").to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
-                        acc = metric_obj.compute()
-                        bin_metrics["accuracy"] = acc.mean().item() if acc.numel() > 1 else acc.item()
+                        bin_metrics["accuracy"] = metric_obj.compute().item()
                     
                     elif metric_name == "f1":
-                        metric_obj = torchmetrics.F1Score(
-                            self.task, num_classes=self.num_classes
-                        ).to(bin_preds.device)
+                        metric_obj = torchmetrics.F1Score(task="binary").to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
                         bin_metrics["f1"] = metric_obj.compute().item()
                     
                     elif metric_name == "specificity":
-                        metric_obj = torchmetrics.Specificity(
-                            self.task, num_classes=self.num_classes
-                        ).to(bin_preds.device)
+                        metric_obj = torchmetrics.Specificity(task="binary").to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
                         bin_metrics["specificity"] = metric_obj.compute().item()
                     
                     elif metric_name == "AUC":
-                        # For AUC, we need probabilities
+                        # For AUC, we need probabilities for positive class
                         bin_logits_subset = all_logits[mask]
-                        if self.task == "binary":
-                            # Convert logits to probabilities and take positive class
-                            probs = F.softmax(bin_logits_subset, dim=1)
-                            bin_probs_subset = probs[:, 1]  # Probability of positive class
-                        else:
-                            bin_probs_subset = bin_logits_subset  # For multiclass, use full logits
-                        metric_obj = torchmetrics.AUROC(
-                            self.task, num_classes=self.num_classes if self.task != "binary" else None
-                        ).to(bin_probs_subset.device)
+                        probs = F.softmax(bin_logits_subset, dim=1)
+                        bin_probs_subset = probs[:, 1]  # Probability of positive class
+                        metric_obj = torchmetrics.AUROC(task="binary").to(bin_probs_subset.device)
                         metric_obj.update(bin_probs_subset, bin_targets)
                         bin_metrics["AUC"] = metric_obj.compute().item()
                     
                     elif metric_name == "sensitivity":
-                        if self.task == "binary":
-                            metric_obj = torchmetrics.Recall(task="binary").to(bin_preds.device)
-                        else:
-                            metric_obj = torchmetrics.Recall(
-                                task="multiclass", num_classes=self.num_classes, average="macro"
-                            ).to(bin_preds.device)
+                        metric_obj = torchmetrics.Recall(task="binary").to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
                         bin_metrics["sensitivity"] = metric_obj.compute().item()
                     
                     elif metric_name == "ppv":
-                        if self.task == "binary":
-                            metric_obj = torchmetrics.Precision(task="binary").to(bin_preds.device)
-                        else:
-                            metric_obj = torchmetrics.Precision(
-                                task="multiclass", num_classes=self.num_classes, average="macro"
-                            ).to(bin_preds.device)
+                        metric_obj = torchmetrics.Precision(task="binary").to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
                         bin_metrics["ppv"] = metric_obj.compute().item()
                     
                     elif metric_name == "cf_matrix":
                         metric_obj = torchmetrics.ConfusionMatrix(
-                            self.task, num_classes=self.num_classes
+                            task="binary", num_classes=self.num_classes
                         ).to(bin_preds.device)
                         metric_obj.update(bin_preds, bin_targets)
                         cm = metric_obj.compute()
@@ -1144,47 +1056,32 @@ class EctopicsClassifier(pl.LightningModule):
         avg_loss = sum(self.step_losses["train"]) / len(self.step_losses["train"])
 
         acc = matrix = f1 = spec = auc = sensitivity = ppv = None
-        acc_per_class = f1_per_class = sensitivity_per_class = ppv_per_class = None
-        spec_per_class = auc_per_class = None
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "train"]["accuracy"].compute()
-            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
-            if acc.numel() > 1:
-                acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:
             matrix = self.metrics["metrics_" + "train"]["cf_matrix"].compute()
 
         if "f1" in self.metrics_lst:
             f1 = self.metrics["metrics_" + "train"]["f1"].compute()
-            if "f1_per_class" in self.metrics["metrics_" + "train"]:
-                f1_per_class = self.metrics["metrics_" + "train"]["f1_per_class"].compute()
         
         if "specificity" in self.metrics_lst:
             spec = self.metrics["metrics_" + "train"]["specificity"].compute()
-            if "specificity_per_class" in self.metrics["metrics_" + "train"]:
-                spec_per_class = self.metrics["metrics_" + "train"]["specificity_per_class"].compute()
 
-        if "AUC"  in self.metrics_lst:
+        if "AUC" in self.metrics_lst:
             auc = self.metrics["metrics_" + "train"]["AUC"].compute()
-            if "AUC_per_class" in self.metrics["metrics_" + "train"]:
-                auc_per_class = self.metrics["metrics_" + "train"]["AUC_per_class"].compute()
 
         if "sensitivity" in self.metrics_lst:
             sensitivity = self.metrics["metrics_" + "train"]["sensitivity"].compute()
-            if "sensitivity_per_class" in self.metrics["metrics_" + "train"]:
-                sensitivity_per_class = self.metrics["metrics_" + "train"]["sensitivity_per_class"].compute()
 
         if "ppv" in self.metrics_lst:
             ppv = self.metrics["metrics_" + "train"]["ppv"].compute()
-            if "ppv_per_class" in self.metrics["metrics_" + "train"]:
-                ppv_per_class = self.metrics["metrics_" + "train"]["ppv_per_class"].compute()
         
         # Build log items
         log_items = [
             ("loss", avg_loss),
-            ("accuracy", acc.mean() if acc_per_class is not None else acc),
+            ("accuracy", acc),
             ("specificity", spec),
             ("AUC", auc),
             ("sensitivity", sensitivity),
@@ -1192,31 +1089,6 @@ class EctopicsClassifier(pl.LightningModule):
             ("confusion_matrix", matrix),
             ("f1", f1),
         ]
-        
-        # Add per-class metrics
-        if acc_per_class is not None:
-            for i, acc_val in enumerate(acc_per_class):
-                log_items.append((f"accuracy_class_{i}", acc_val))
-        
-        if f1_per_class is not None:
-            for i, f1_val in enumerate(f1_per_class):
-                log_items.append((f"f1_class_{i}", f1_val))
-        
-        if sensitivity_per_class is not None:
-            for i, sens_val in enumerate(sensitivity_per_class):
-                log_items.append((f"sensitivity_class_{i}", sens_val))
-        
-        if ppv_per_class is not None:
-            for i, ppv_val in enumerate(ppv_per_class):
-                log_items.append((f"ppv_class_{i}", ppv_val))
-        
-        if spec_per_class is not None:
-            for i, spec_val in enumerate(spec_per_class):
-                log_items.append((f"specificity_class_{i}", spec_val))
-        
-        if auc_per_class is not None:
-            for i, auc_val in enumerate(auc_per_class):
-                log_items.append((f"AUC_class_{i}", auc_val))
         
         self.log_all(
                 items=log_items,
@@ -1249,48 +1121,29 @@ class EctopicsClassifier(pl.LightningModule):
                 preds_subject = torch.tensor(data['predictions'], device=self.device_type)
                 targets_subject = torch.tensor(data['targets'], device=self.device_type)
                 
-                # Calculate metrics for this subject
+                # Calculate metrics for this subject (binary classification)
                 if "accuracy" in self.metrics_lst:
-                    acc_metric = torchmetrics.Accuracy(
-                        self.task, num_classes=self.num_classes, average="none"
-                    ).to(self.device_type)
+                    acc_metric = torchmetrics.Accuracy(task="binary").to(self.device_type)
                     acc_subject = acc_metric(preds_subject, targets_subject)
-                    if acc_subject.numel() > 1:
-                        subject_accuracies.append(acc_subject.mean().item())
-                    else:
-                        subject_accuracies.append(acc_subject.item())
+                    subject_accuracies.append(acc_subject.item())
                 
                 if "f1" in self.metrics_lst:
-                    f1_metric = torchmetrics.F1Score(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    ).to(self.device_type)
+                    f1_metric = torchmetrics.F1Score(task="binary").to(self.device_type)
                     f1_subject = f1_metric(preds_subject, targets_subject)
                     subject_f1_scores.append(f1_subject.item())
                 
                 if "sensitivity" in self.metrics_lst:
-                    if self.task == "binary":
-                        sens_metric = torchmetrics.Recall(task="binary").to(self.device_type)
-                    else:
-                        sens_metric = torchmetrics.Recall(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        ).to(self.device_type)
+                    sens_metric = torchmetrics.Recall(task="binary").to(self.device_type)
                     sens_subject = sens_metric(preds_subject, targets_subject)
                     subject_sensitivities.append(sens_subject.item())
                 
                 if "specificity" in self.metrics_lst:
-                    spec_metric = torchmetrics.Specificity(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    ).to(self.device_type)
+                    spec_metric = torchmetrics.Specificity(task="binary").to(self.device_type)
                     spec_subject = spec_metric(preds_subject, targets_subject)
                     subject_specificities.append(spec_subject.item())
                 
                 if "ppv" in self.metrics_lst:
-                    if self.task == "binary":
-                        ppv_metric = torchmetrics.Precision(task="binary").to(self.device_type)
-                    else:
-                        ppv_metric = torchmetrics.Precision(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        ).to(self.device_type)
+                    ppv_metric = torchmetrics.Precision(task="binary").to(self.device_type)
                     ppv_subject = ppv_metric(preds_subject, targets_subject)
                     subject_ppvs.append(ppv_subject.item())
             
@@ -1438,47 +1291,32 @@ class EctopicsClassifier(pl.LightningModule):
         avg_loss = sum(self.step_losses["valid"]) / len(self.step_losses["valid"])
 
         acc = matrix = f1 = spec = auc = sensitivity = ppv = None
-        acc_per_class = f1_per_class = sensitivity_per_class = ppv_per_class = None
-        spec_per_class = auc_per_class = None
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "valid"]["accuracy"].compute()
-            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
-            if acc.numel() > 1:
-                acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:
             matrix = self.metrics["metrics_" + "valid"]["cf_matrix"].compute()
 
         if "f1" in self.metrics_lst:
             f1 = self.metrics["metrics_" + "valid"]["f1"].compute()
-            if "f1_per_class" in self.metrics["metrics_" + "valid"]:
-                f1_per_class = self.metrics["metrics_" + "valid"]["f1_per_class"].compute()
         
         if "specificity" in self.metrics_lst:
             spec = self.metrics["metrics_" + "valid"]["specificity"].compute()
-            if "specificity_per_class" in self.metrics["metrics_" + "valid"]:
-                spec_per_class = self.metrics["metrics_" + "valid"]["specificity_per_class"].compute()
 
-        if "AUC"  in self.metrics_lst:
+        if "AUC" in self.metrics_lst:
             auc = self.metrics["metrics_" + "valid"]["AUC"].compute()
-            if "AUC_per_class" in self.metrics["metrics_" + "valid"]:
-                auc_per_class = self.metrics["metrics_" + "valid"]["AUC_per_class"].compute()
 
         if "sensitivity" in self.metrics_lst:
             sensitivity = self.metrics["metrics_" + "valid"]["sensitivity"].compute()
-            if "sensitivity_per_class" in self.metrics["metrics_" + "valid"]:
-                sensitivity_per_class = self.metrics["metrics_" + "valid"]["sensitivity_per_class"].compute()
 
         if "ppv" in self.metrics_lst:
             ppv = self.metrics["metrics_" + "valid"]["ppv"].compute()
-            if "ppv_per_class" in self.metrics["metrics_" + "valid"]:
-                ppv_per_class = self.metrics["metrics_" + "valid"]["ppv_per_class"].compute()
         
         # Build log items
         log_items = [
             ("loss", avg_loss),
-            ("accuracy", acc.mean() if acc_per_class is not None else acc),
+            ("accuracy", acc),
             ("specificity", spec),
             ("AUC", auc),
             ("sensitivity", sensitivity),
@@ -1486,31 +1324,6 @@ class EctopicsClassifier(pl.LightningModule):
             ("confusion_matrix", matrix),
             ("f1", f1),
         ]
-        
-        # Add per-class metrics
-        if acc_per_class is not None:
-            for i, acc_val in enumerate(acc_per_class):
-                log_items.append((f"accuracy_class_{i}", acc_val))
-        
-        if f1_per_class is not None:
-            for i, f1_val in enumerate(f1_per_class):
-                log_items.append((f"f1_class_{i}", f1_val))
-        
-        if sensitivity_per_class is not None:
-            for i, sens_val in enumerate(sensitivity_per_class):
-                log_items.append((f"sensitivity_class_{i}", sens_val))
-        
-        if ppv_per_class is not None:
-            for i, ppv_val in enumerate(ppv_per_class):
-                log_items.append((f"ppv_class_{i}", ppv_val))
-        
-        if spec_per_class is not None:
-            for i, spec_val in enumerate(spec_per_class):
-                log_items.append((f"specificity_class_{i}", spec_val))
-        
-        if auc_per_class is not None:
-            for i, auc_val in enumerate(auc_per_class):
-                log_items.append((f"AUC_class_{i}", auc_val))
         
         self.log_all(
                 items=log_items,
@@ -1544,48 +1357,29 @@ class EctopicsClassifier(pl.LightningModule):
                 preds_subject = torch.tensor(data['predictions'], device=self.device_type)
                 targets_subject = torch.tensor(data['targets'], device=self.device_type)
                 
-                # Calculate metrics for this subject
+                # Calculate metrics for this subject (binary classification)
                 if "accuracy" in self.metrics_lst:
-                    acc_metric = torchmetrics.Accuracy(
-                        self.task, num_classes=self.num_classes, average="none"
-                    ).to(self.device_type)
+                    acc_metric = torchmetrics.Accuracy(task="binary").to(self.device_type)
                     acc_subject = acc_metric(preds_subject, targets_subject)
-                    if acc_subject.numel() > 1:
-                        subject_accuracies.append(acc_subject.mean().item())
-                    else:
-                        subject_accuracies.append(acc_subject.item())
+                    subject_accuracies.append(acc_subject.item())
                 
                 if "f1" in self.metrics_lst:
-                    f1_metric = torchmetrics.F1Score(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    ).to(self.device_type)
+                    f1_metric = torchmetrics.F1Score(task="binary").to(self.device_type)
                     f1_subject = f1_metric(preds_subject, targets_subject)
                     subject_f1_scores.append(f1_subject.item())
                 
                 if "sensitivity" in self.metrics_lst:
-                    if self.task == "binary":
-                        sens_metric = torchmetrics.Recall(task="binary").to(self.device_type)
-                    else:
-                        sens_metric = torchmetrics.Recall(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        ).to(self.device_type)
+                    sens_metric = torchmetrics.Recall(task="binary").to(self.device_type)
                     sens_subject = sens_metric(preds_subject, targets_subject)
                     subject_sensitivities.append(sens_subject.item())
                 
                 if "specificity" in self.metrics_lst:
-                    spec_metric = torchmetrics.Specificity(
-                        self.task, num_classes=self.num_classes, average="macro"
-                    ).to(self.device_type)
+                    spec_metric = torchmetrics.Specificity(task="binary").to(self.device_type)
                     spec_subject = spec_metric(preds_subject, targets_subject)
                     subject_specificities.append(spec_subject.item())
                 
                 if "ppv" in self.metrics_lst:
-                    if self.task == "binary":
-                        ppv_metric = torchmetrics.Precision(task="binary").to(self.device_type)
-                    else:
-                        ppv_metric = torchmetrics.Precision(
-                            task="multiclass", num_classes=self.num_classes, average="macro"
-                        ).to(self.device_type)
+                    ppv_metric = torchmetrics.Precision(task="binary").to(self.device_type)
                     ppv_subject = ppv_metric(preds_subject, targets_subject)
                     subject_ppvs.append(ppv_subject.item())
                 
@@ -1779,47 +1573,32 @@ class EctopicsClassifier(pl.LightningModule):
         avg_loss = sum(self.step_losses["test"]) / len(self.step_losses["test"])
 
         acc = matrix = f1 = spec = auc = sensitivity = ppv = None
-        acc_per_class = f1_per_class = sensitivity_per_class = ppv_per_class = None
-        spec_per_class = auc_per_class = None
 
         if "accuracy" in self.metrics_lst:
             acc = self.metrics["metrics_" + "test"]["accuracy"].compute()
-            # For both binary and multiclass, accuracy with average="none" returns per-class accuracy
-            if acc.numel() > 1:
-                acc_per_class = acc
 
         if "cf_matrix" in self.metrics_lst:
             matrix = self.metrics["metrics_" + "test"]["cf_matrix"].compute()
 
         if "f1" in self.metrics_lst:
             f1 = self.metrics["metrics_" + "test"]["f1"].compute()
-            if "f1_per_class" in self.metrics["metrics_" + "test"]:
-                f1_per_class = self.metrics["metrics_" + "test"]["f1_per_class"].compute()
         
         if "specificity" in self.metrics_lst:
             spec = self.metrics["metrics_" + "test"]["specificity"].compute()
-            if "specificity_per_class" in self.metrics["metrics_" + "test"]:
-                spec_per_class = self.metrics["metrics_" + "test"]["specificity_per_class"].compute()
 
-        if "AUC"  in self.metrics_lst:
+        if "AUC" in self.metrics_lst:
             auc = self.metrics["metrics_" + "test"]["AUC"].compute()
-            if "AUC_per_class" in self.metrics["metrics_" + "test"]:
-                auc_per_class = self.metrics["metrics_" + "test"]["AUC_per_class"].compute()
 
         if "sensitivity" in self.metrics_lst:
             sensitivity = self.metrics["metrics_" + "test"]["sensitivity"].compute()
-            if "sensitivity_per_class" in self.metrics["metrics_" + "test"]:
-                sensitivity_per_class = self.metrics["metrics_" + "test"]["sensitivity_per_class"].compute()
 
         if "ppv" in self.metrics_lst:
             ppv = self.metrics["metrics_" + "test"]["ppv"].compute()
-            if "ppv_per_class" in self.metrics["metrics_" + "test"]:
-                ppv_per_class = self.metrics["metrics_" + "test"]["ppv_per_class"].compute()
         
         # Build log items
         log_items = [
             ("loss", avg_loss),
-            ("accuracy", acc.mean() if acc_per_class is not None else acc),
+            ("accuracy", acc),
             ("specificity", spec),
             ("AUC", auc),
             ("sensitivity", sensitivity),
@@ -1827,31 +1606,6 @@ class EctopicsClassifier(pl.LightningModule):
             ("confusion_matrix", matrix),
             ("f1", f1),
         ]
-        
-        # Add per-class metrics
-        if acc_per_class is not None:
-            for i, acc_val in enumerate(acc_per_class):
-                log_items.append((f"accuracy_class_{i}", acc_val))
-        
-        if f1_per_class is not None:
-            for i, f1_val in enumerate(f1_per_class):
-                log_items.append((f"f1_class_{i}", f1_val))
-        
-        if sensitivity_per_class is not None:
-            for i, sens_val in enumerate(sensitivity_per_class):
-                log_items.append((f"sensitivity_class_{i}", sens_val))
-        
-        if ppv_per_class is not None:
-            for i, ppv_val in enumerate(ppv_per_class):
-                log_items.append((f"ppv_class_{i}", ppv_val))
-        
-        if spec_per_class is not None:
-            for i, spec_val in enumerate(spec_per_class):
-                log_items.append((f"specificity_class_{i}", spec_val))
-        
-        if auc_per_class is not None:
-            for i, auc_val in enumerate(auc_per_class):
-                log_items.append((f"AUC_class_{i}", auc_val))
         
         self.log_all(
                 items=log_items,
