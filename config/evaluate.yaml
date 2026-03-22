@@ -1,0 +1,54 @@
+data:
+  base_path: "./PPG_data/splitted_data/sqi_0_0"
+  # Use {dataset} placeholder if needed, e.g., for cross-validation folds
+  # Example: "${data.base_path}sqi_0_0/" for specific fold
+  path:
+    test:
+      x_path: "${data.base_path}/ppg_test_normalized.npy"
+      y_path: "${data.base_path}/labels_test.npy"
+      ecg_path: "${data.base_path}/ecg_test.npy"
+      include_ecg: true
+      filenames_path: "${data.base_path}/filenames_test.npy"
+      fp_mask_path: "${data.base_path}/fp_masks_test.npy"
+      sqi_path: "${data.base_path}/sqi_test.npy"
+      sqi_sample_path: "${data.base_path}/sqi_sample_test.npy"
+  loader:
+    batch_size: 32
+    num_workers: 4
+    pin_memory: True
+    drop_last: False  # Don't drop last batch for evaluation to test all samples
+ 
+    persistent_workers: False
+model:
+  config:
+    metrics:
+      accuracy: True
+      cf_matrix: True
+      f1: True
+      specificity: True
+      AUC: True
+      sensitivity: True
+      ppv: True
+    misclassified_samples:
+      enable: false
+      max_samples: 0
+      
+trainer:
+  parameters:
+    accelerator: "gpu"
+    devices: "auto"
+    precision: "32"
+  callbacks:
+    logger:
+      save_dir: logs/evaluate/
+      name: ""
+      version: Null
+      log_graph: False
+      default_hp_metric: True
+      prefix: ""
+      sub_dir: Null
+
+experiment:
+  train: false
+  test: true
+  ckpt_path: "./checkpoints/resnet18-epoch=66-valid_loss=0.607900-valid_accuracy=0.747318-v1.ckpt"
