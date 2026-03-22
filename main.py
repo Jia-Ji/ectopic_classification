@@ -33,7 +33,7 @@ import os
 from data_pipeline.dataset_builder import CombinedDataBuilder
 from data_pipeline.signal_preprocessor import Preprocessor
 from data_pipeline.data_splitter import DataSplitter
-from data_pipeline.domain_normalizer import DomainNormalizer
+from data_pipeline.domain_normalizer import DomainNormalizer, SegmentNormalizer, GlobalNormalizer
 
 # Training imports
 import hydra.utils
@@ -130,6 +130,45 @@ def domain_normalize_pipeline(cfg: DictConfig) -> None:
     normalizer.run()
     
     print("\n✓ Domain normalization pipeline completed!")
+
+
+def segment_normalize_pipeline(cfg: DictConfig) -> None:
+    """
+    Pipeline 4b: Per-segment normalization for PPG signals.
+    
+    This pipeline:
+    - Loads PPG data from splitted data
+    - Normalizes each segment independently using its own mean and std (z-score)
+    - Saves normalized data
+    """
+    print("=" * 80)
+    print("PIPELINE 4b: PER-SEGMENT NORMALIZATION")
+    print("=" * 80)
+    
+    normalizer = SegmentNormalizer(cfg)
+    normalizer.run()
+    
+    print("\n✓ Segment normalization pipeline completed!")
+
+
+def global_normalize_pipeline(cfg: DictConfig) -> None:
+    """
+    Pipeline 4c: Global normalization for PPG signals.
+    
+    This pipeline:
+    - Loads PPG data from splitted data
+    - Computes global mean and std from all training segments
+    - Normalizes all splits using global statistics
+    - Saves normalized data and global statistics
+    """
+    print("=" * 80)
+    print("PIPELINE 4c: GLOBAL NORMALIZATION")
+    print("=" * 80)
+    
+    normalizer = GlobalNormalizer(cfg)
+    normalizer.run()
+    
+    print("\n✓ Global normalization pipeline completed!")
 
 
 def train_model_pipeline(cfg: DictConfig) -> None:
@@ -727,6 +766,8 @@ def main():
         print("  - preprocess               : Preprocess signals")
         print("  - split                    : Split data into train/val/test")
         print("  - domain_normalize         : Normalize PPG by domain (Cathlab vs Theatre)")
+        print("  - segment_normalize        : Normalize each PPG segment by itself (z-score)")
+        print("  - global_normalize         : Normalize using global mean/std from training set")
         print("  - train                    : Train the classification model")
         print("  - train_regression         : Train the regression model")
         print("  - train_svm                : Train the SVM model")
@@ -750,6 +791,10 @@ def main():
         "domain_normalize": ("domain_normalize_config", domain_normalize_pipeline),
         "domain_norm": ("domain_normalize_config", domain_normalize_pipeline),
         "normalize": ("domain_normalize_config", domain_normalize_pipeline),
+        "segment_normalize": ("domain_normalize_config", segment_normalize_pipeline),
+        "segment_norm": ("domain_normalize_config", segment_normalize_pipeline),
+        "global_normalize": ("domain_normalize_config", global_normalize_pipeline),
+        "global_norm": ("domain_normalize_config", global_normalize_pipeline),
         "train": ("train", train_model_pipeline),
         "train_model": ("train", train_model_pipeline),
         "train_regression": ("train_reg_config", train_regression_pipeline),
@@ -773,6 +818,8 @@ def main():
         print("  - preprocess               : Preprocess signals")
         print("  - split                    : Split data into train/val/test")
         print("  - domain_normalize         : Normalize PPG by domain (Cathlab vs Theatre)")
+        print("  - segment_normalize        : Normalize each PPG segment by itself (z-score)")
+        print("  - global_normalize         : Normalize using global mean/std from training set")
         print("  - train                    : Train the classification model")
         print("  - train_regression         : Train the regression model")
         print("  - train_svm                : Train the SVM model")

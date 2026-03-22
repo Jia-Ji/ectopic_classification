@@ -5,6 +5,363 @@ from typing import Dict, Tuple
 from omegaconf import DictConfig
 
 
+class GlobalNormalizer:
+    """
+    Global normalization for PPG signals.
+    Computes global mean and std from all segments (train, val, test), then applies to all splits.
+    """
+    
+    def __init__(self, config: DictConfig):
+        """
+        Initialize GlobalNormalizer with configuration from domain_normalize_config.yaml.
+        
+        Args:
+            config: DictConfig containing normalization parameters
+        """
+        self.config = config
+        self.normalize_cfg = config.domain_normalize
+        
+        # Load parameters from config
+        self.data_dir = self.normalize_cfg.get('data_dir')
+        self.stats_output_path = self.normalize_cfg.get('stats_output_path', None)
+        
+        # Validate required paths
+        if not self.data_dir:
+            raise ValueError("data_dir must be specified in config.domain_normalize")
+    
+    def load_split_data(self, split_name: str) -> np.ndarray:
+        """
+        Load PPG data for a given split.
+        
+        Args:
+            split_name: Name of the split ('train', 'val', or 'test')
+            
+        Returns:
+            PPG array
+        """
+        ppg_path = os.path.join(self.data_dir, f'ppg_{split_name}.npy')
+        
+        if not os.path.exists(ppg_path):
+            raise FileNotFoundError(f"PPG file not found: {ppg_path}")
+        
+        ppg = np.load(ppg_path, allow_pickle=True)
+        
+        print(f"  Loaded {split_name}: {len(ppg)} samples")
+        return ppg
+    
+    def compute_global_stats(self, ppg_splits: Dict[str, np.ndarray]) -> Dict[str, float]:
+        """
+        Compute global mean and std from all segments across train, val, and test.
+        
+        Args:
+            ppg_splits: Dictionary with split names as keys and PPG arrays as values
+            
+        Returns:
+            Dictionary with global stats: {'mean': float, 'std': float, 'num_segments': int}
+        """
+        print("\n=== Computing Global Statistics from All Splits ===")
+        
+        # Concatenate all segments from all splits
+        all_segments = []
+        total_segments = 0
+        
+        for split_name, ppg_data in ppg_splits.items():
+            split_count = 0
+            for i in range(len(ppg_data)):
+                ppg_signal = np.asarray(ppg_data[i])
+                if ppg_signal.ndim > 1:
+                    ppg_signal = ppg_signal.flatten()
+                all_segments.append(ppg_signal)
+                split_count += 1
+            print(f"  {split_name}: {split_count} segments")
+            total_segments += split_count
+        
+        # Compute global statistics
+        all_data = np.concatenate(all_segments)
+        global_mean = np.mean(all_data)
+        global_std = np.std(all_data)
+        
+        global_stats = {
+            'mean': float(global_mean),
+            'std': float(global_std),
+            'num_segments': total_segments,
+            'total_samples': len(all_data)
+        }
+        
+        print(f"\n  Global mean: {global_mean:.6f}")
+        print(f"  Global std: {global_std:.6f}")
+        print(f"  Total segments: {total_segments}")
+        print(f"  Total data points: {len(all_data)}")
+        
+        return global_stats
+    
+    def normalize_with_global_stats(self, ppg: np.ndarray, global_stats: Dict[str, float]) -> np.ndarray:
+        """
+        Normalize all PPG segments using global statistics.
+        
+        Args:
+            ppg: Array of PPG signals
+            global_stats: Dictionary with global mean and std
+            
+        Returns:
+            Array of normalized PPG signals
+        """
+        mean_g = global_stats['mean']
+        std_g = global_stats['std']
+        
+        # Avoid division by zero
+        if std_g == 0 or np.isnan(std_g):
+            std_g = 1.0
+        
+        normalized_ppg = []
+        for i in range(len(ppg)):
+            ppg_signal = np.asarray(ppg[i]).copy()
+            normalized_signal = (ppg_signal - mean_g) / std_g
+            normalized_ppg.append(normalized_signal)
+        
+        return np.array(normalized_ppg, dtype=object)
+    
+    def save_global_stats(self, global_stats: Dict[str, float]) -> None:
+        """
+        Save global statistics to JSON file.
+        
+        Args:
+            global_stats: Dictionary with global statistics
+        """
+        if self.stats_output_path:
+            os.makedirs(os.path.dirname(self.stats_output_path) if os.path.dirname(self.stats_output_path) else '.', exist_ok=True)
+            
+            with open(self.stats_output_path, 'w') as f:
+                json.dump(global_stats, f, indent=2)
+            
+            print(f"\n✓ Saved global statistics to {self.stats_output_path}")
+        else:
+            # Save to default path in data_dir
+            default_path = os.path.join(self.data_dir, 'global_stats.json')
+            with open(default_path, 'w') as f:
+                json.dump(global_stats, f, indent=2)
+            print(f"\n✓ Saved global statistics to {default_path}")
+    
+    def save_normalized_data(self, split_name: str, ppg_normalized: np.ndarray) -> None:
+        """
+        Save normalized PPG data.
+        
+        Args:
+            split_name: Name of the split ('train', 'val', or 'test')
+            ppg_normalized: Normalized PPG array
+        """
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        output_path = os.path.join(self.data_dir, f'ppg_{split_name}_normalized.npy')
+        np.save(output_path, ppg_normalized)
+        print(f"  ✓ Saved normalized {split_name} PPG to {output_path}")
+    
+    def run(self) -> None:
+        """
+        Run the complete global normalization pipeline:
+        1. Load all data (train, val, test)
+        2. Compute global mean and std from all segments
+        3. Save global statistics
+        4. Normalize all splits using global stats
+        5. Save normalized data
+        """
+        print("=" * 80)
+        print("GLOBAL PPG NORMALIZATION PIPELINE")
+        print("=" * 80)
+        print(f"Data directory: {self.data_dir}")
+        print("Normalization: Global mean and std from all splits (train, val, test)")
+        print("=" * 80)
+        
+        # Step 1: Load all data
+        print("\n=== Step 1: Loading All Data ===")
+        splits = ['train', 'val', 'test']
+        ppg_splits = {}
+        
+        for split_name in splits:
+            try:
+                ppg_splits[split_name] = self.load_split_data(split_name)
+            except FileNotFoundError as e:
+                print(f"  Warning: {split_name} split not found, skipping: {e}")
+                continue
+        
+        if not ppg_splits:
+            raise ValueError("No data splits found. Cannot compute global statistics.")
+        
+        # Step 2: Compute global statistics from all splits
+        print("\n=== Step 2: Computing Global Statistics ===")
+        global_stats = self.compute_global_stats(ppg_splits)
+        
+        # Step 3: Save global statistics
+        print("\n=== Step 3: Saving Global Statistics ===")
+        self.save_global_stats(global_stats)
+        
+        # Step 4: Normalize all splits
+        print("\n=== Step 4: Normalizing All Splits ===")
+        
+        for split_name, ppg_split in ppg_splits.items():
+            print(f"\nProcessing {split_name} split...")
+            
+            # Normalize using global statistics
+            ppg_normalized = self.normalize_with_global_stats(ppg_split, global_stats)
+            
+            # Save normalized data
+            self.save_normalized_data(split_name, ppg_normalized)
+            
+            # Print statistics for verification
+            sample_means = [np.mean(ppg_normalized[i]) for i in range(min(5, len(ppg_normalized)))]
+            sample_stds = [np.std(ppg_normalized[i]) for i in range(min(5, len(ppg_normalized)))]
+            print(f"  Sample means (first 5): {[f'{m:.4f}' for m in sample_means]}")
+            print(f"  Sample stds (first 5): {[f'{s:.4f}' for s in sample_stds]}")
+        
+        print("\n" + "=" * 80)
+        print("Global normalization complete!")
+        print("=" * 80)
+        print(f"\nNormalized data saved to: {self.data_dir}")
+
+
+class SegmentNormalizer:
+    """
+    Per-segment normalization for PPG signals.
+    Standardizes each segment independently using its own mean and std (z-score normalization).
+    """
+    
+    def __init__(self, config: DictConfig):
+        """
+        Initialize SegmentNormalizer with configuration from domain_normalize_config.yaml.
+        
+        Args:
+            config: DictConfig containing normalization parameters
+        """
+        self.config = config
+        self.normalize_cfg = config.domain_normalize
+        
+        # Load parameters from config
+        self.data_dir = self.normalize_cfg.get('data_dir')
+        
+        # Validate required paths
+        if not self.data_dir:
+            raise ValueError("data_dir must be specified in config.domain_normalize")
+    
+    def load_split_data(self, split_name: str) -> np.ndarray:
+        """
+        Load PPG data for a given split.
+        
+        Args:
+            split_name: Name of the split ('train', 'val', or 'test')
+            
+        Returns:
+            PPG array
+        """
+        ppg_path = os.path.join(self.data_dir, f'ppg_{split_name}.npy')
+        
+        if not os.path.exists(ppg_path):
+            raise FileNotFoundError(f"PPG file not found: {ppg_path}")
+        
+        ppg = np.load(ppg_path, allow_pickle=True)
+        
+        print(f"  Loaded {split_name}: {len(ppg)} samples")
+        return ppg
+    
+    def normalize_segment(self, ppg_signal: np.ndarray) -> np.ndarray:
+        """
+        Normalize a single PPG segment using its own mean and std.
+        
+        Args:
+            ppg_signal: PPG signal array
+            
+        Returns:
+            Normalized PPG signal with mean=0 and std=1
+        """
+        ppg_signal = np.asarray(ppg_signal).copy()
+        
+        # Compute segment statistics
+        mean_val = np.mean(ppg_signal)
+        std_val = np.std(ppg_signal)
+        
+        # Avoid division by zero
+        if std_val == 0 or np.isnan(std_val):
+            std_val = 1.0
+        
+        # Z-score normalization: (x - mean) / std
+        normalized_signal = (ppg_signal - mean_val) / std_val
+        
+        return normalized_signal
+    
+    def normalize_all_segments(self, ppg: np.ndarray) -> np.ndarray:
+        """
+        Normalize all PPG segments independently.
+        
+        Args:
+            ppg: Array of PPG signals
+            
+        Returns:
+            Array of normalized PPG signals
+        """
+        normalized_ppg = []
+        
+        for i in range(len(ppg)):
+            normalized_signal = self.normalize_segment(ppg[i])
+            normalized_ppg.append(normalized_signal)
+        
+        return np.array(normalized_ppg, dtype=object)
+    
+    def save_normalized_data(self, split_name: str, ppg_normalized: np.ndarray) -> None:
+        """
+        Save normalized PPG data.
+        
+        Args:
+            split_name: Name of the split ('train', 'val', or 'test')
+            ppg_normalized: Normalized PPG array
+        """
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        output_path = os.path.join(self.data_dir, f'ppg_{split_name}_normalized.npy')
+        np.save(output_path, ppg_normalized)
+        print(f"  ✓ Saved normalized {split_name} PPG to {output_path}")
+    
+    def run(self) -> None:
+        """
+        Run the complete per-segment normalization pipeline:
+        1. Load each split
+        2. Normalize each segment by its own mean and std
+        3. Save normalized data
+        """
+        print("=" * 80)
+        print("PER-SEGMENT PPG NORMALIZATION PIPELINE")
+        print("=" * 80)
+        print(f"Data directory: {self.data_dir}")
+        print("Normalization: Each segment standardized independently (z-score)")
+        print("=" * 80)
+        
+        splits = ['train', 'val', 'test']
+        
+        for split_name in splits:
+            try:
+                print(f"\nProcessing {split_name} split...")
+                ppg_split = self.load_split_data(split_name)
+                
+                # Normalize each segment independently
+                ppg_normalized = self.normalize_all_segments(ppg_split)
+                
+                # Save normalized data
+                self.save_normalized_data(split_name, ppg_normalized)
+                
+                # Print statistics for verification
+                sample_means = [np.mean(ppg_normalized[i]) for i in range(min(5, len(ppg_normalized)))]
+                sample_stds = [np.std(ppg_normalized[i]) for i in range(min(5, len(ppg_normalized)))]
+                print(f"  Sample means (first 5): {[f'{m:.4f}' for m in sample_means]}")
+                print(f"  Sample stds (first 5): {[f'{s:.4f}' for s in sample_stds]}")
+                
+            except FileNotFoundError as e:
+                print(f"  Warning: {split_name} split not found, skipping: {e}")
+                continue
+        
+        print("\n" + "=" * 80)
+        print("Per-segment normalization complete!")
+        print("=" * 80)
+        print(f"\nNormalized data saved to: {self.data_dir}")
+
+
 class DomainNormalizer:
     """
     Domain-based normalization for PPG signals.
@@ -275,4 +632,3 @@ class DomainNormalizer:
         print("=" * 80)
         print(f"\nNormalized data saved to: {self.data_dir}")
         print(f"Domain statistics saved to: {self.stats_output_path}")
-

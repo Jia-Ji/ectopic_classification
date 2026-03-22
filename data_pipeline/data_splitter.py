@@ -171,7 +171,7 @@ class DataSplitter:
         # Determine number of folds based on proportions
         # Use a reasonable number of folds (e.g., 5 or 10) to allow flexible splitting
         n_folds =10
-        random_state = 103
+        random_state = 42
         kfold = MultilabelStratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
         
         # Store random_state as instance variable for reporting

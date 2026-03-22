@@ -2,10 +2,10 @@
 domain_normalize:
   # Input/Output paths
   # Input directory containing splitted data (should contain id0_train.npy, ppg_train.npy, etc.)
-  data_dir: "./PPG_data/splitted_data/sqi_0_4"
+  data_dir: "./PPG_data/MAD/splitted_data_resampled/all_segmentl_normalized/"
   
   # Path to save domain statistics JSON file
-  stats_output_path: "./PPG_data/splitted_data/sqi_0_4/domain_stats.json"
+  stats_output_path: "./PPG_data/MAD/splitted_data_resampled/all_segmentl_normalized/domain_stats.json"
 
   # Domain identification prefixes
   cathlab_prefix: "ID"
